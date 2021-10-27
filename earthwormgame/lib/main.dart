@@ -1,10 +1,17 @@
+import 'dart:convert';
 import 'dart:math';
 
+import 'package:earthwormgame/components/food.dart';
+import 'package:earthwormgame/components/player.dart';
+import 'package:earthwormgame/components/square.dart';
+import 'package:earthwormgame/models/game.dart';
+import 'package:earthwormgame/setting.dart';
 import 'package:earthwormgame/style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/svg.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   runApp(const MyApp());
@@ -20,159 +27,167 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         textTheme: GoogleFonts.quanticoTextTheme(),
       ),
-      home: const MyHomePage(),
+      home: const GamePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({Key? key}) : super(key: key);
+class GamePage extends StatefulWidget {
+  const GamePage({Key? key}) : super(key: key);
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<GamePage> createState() => _GamePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int foodIndex = 310;
-  int wormIndex = 110;
+class _GamePageState extends State<GamePage> {
+  int playerIndex = Random().nextInt(totalItemCount - 1);
+  int foodIndex = Random().nextInt(totalItemCount - 1);
   int score = 0;
-  bool isDarkTheme = false;
-  static const int totalItemCount = 840;
+
+  final WebSocketChannel channel = IOWebSocketChannel.connect(urlWebSocket);
+
+  @override
+  void initState() {
+    _register();
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    channel.sink.close();
+    super.dispose();
+  }
+
+  _register() {
+    channel.stream.listen((dynamic data) {
+      Game game = Game.fromJson(data.toString());
+
+      setState(() {
+        foodIndex = game.foodIndex;
+        playerIndex = game.playerIndex;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: primaryColor,
       body: Center(
-          child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text(
-            "WORM GAME",
-            style: TextStyle(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              "WORM GAME",
+              style: TextStyle(
                 color: secondaryColor,
                 fontSize: 54,
-                fontWeight: FontWeight.bold),
-          ),
-          Text(
-            "SCORE: $score",
-            style: const TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              "SCORE: ${score}",
+              style: const TextStyle(
                 color: secondaryColor,
                 fontSize: 34,
-                fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 25),
-          RawKeyboardListener(
-            focusNode: FocusNode(),
-            autofocus: true,
-            onKey: _handleKeyEvent,
-            child: Container(
-              height: 742,
-              width: 1075,
-              color: primaryDarkColor,
-              child: Center(
-                child: GridView.count(
-                  crossAxisCount: 35,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: List.generate(totalItemCount, (int index) {
-                    if (index == foodIndex) {
-                      return getFoodWidget();
-                    }
-                    if (index == wormIndex) {
-                      return getWormWidget();
-                    }
-                    return getSquareWidget();
-                  }),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 25),
+            RawKeyboardListener(
+              focusNode: FocusNode(),
+              autofocus: true,
+              onKey: _handleKeyEvent,
+              child: Container(
+                height: 742,
+                width: 1075,
+                color: primaryDarkColor,
+                child: Center(
+                  child: GridView.count(
+                    crossAxisCount: 35,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: List.generate(
+                      totalItemCount,
+                      (int index) {
+                        if (index == foodIndex) {
+                          return const Food();
+                        }
+                        if (index == playerIndex) {
+                          return const Player();
+                        }
+                        return const Square();
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
-      )),
+            // StreamBuilder(
+            //   stream: widget.channel.stream,
+            //   builder: (BuildContext context, AsyncSnapshot<dynamic> snapshot) {
+            //     if (snapshot.hasData) {
+            //       print(snapshot.data.toString());
+            //     }
+            //     return Container();
+            //   },
+            // ),
+          ],
+        ),
+      ),
     );
   }
 
   bool _canMoveToLeft() {
-    return (wormIndex % 35 != 0) && (wormIndex - 1) > -1;
+    return (playerIndex % 35 != 0) && (playerIndex - 1) > -1;
   }
 
   bool _canMoveToRight() {
-    return ((wormIndex + 1) % 35 != 0) && (wormIndex + 1) < totalItemCount;
+    return ((playerIndex + 1) % 35 != 0) &&
+        (playerIndex + 1) < totalItemCount;
   }
 
   void _handleKeyEvent(RawKeyEvent keyEvent) {
-    int newWormIndex = wormIndex;
+    int newWormIndex = playerIndex;
     if (keyEvent.runtimeType.toString() == 'RawKeyDownEvent') {
       if (keyEvent.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
-        newWormIndex = (wormIndex - 35) > -1 ? (wormIndex - 35) : wormIndex;
+        channel.sink.add(LogicalKeyboardKey.arrowUp.keyLabel);
+
+        newWormIndex = (playerIndex - 35) > -1
+            ? (playerIndex - 35)
+            : playerIndex;
       }
       if (keyEvent.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-        newWormIndex =
-            (wormIndex + 35) < totalItemCount ? (wormIndex + 35) : wormIndex;
+        channel.sink.add(LogicalKeyboardKey.arrowDown.keyLabel);
+        newWormIndex = (playerIndex + 35) < totalItemCount
+            ? (playerIndex + 35)
+            : playerIndex;
       }
       if (keyEvent.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-        newWormIndex = _canMoveToRight() ? (wormIndex + 1) : wormIndex;
+        channel.sink.add(LogicalKeyboardKey.arrowRight.keyLabel);
+        newWormIndex =
+            _canMoveToRight() ? (playerIndex + 1) : playerIndex;
       }
       if (keyEvent.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-        newWormIndex = _canMoveToLeft() ? wormIndex - 1 : wormIndex;
+        channel.sink.add(LogicalKeyboardKey.arrowLeft.keyLabel);
+        newWormIndex =
+            _canMoveToLeft() ? playerIndex - 1 : playerIndex;
       }
-      setState(() => wormIndex = newWormIndex);
+      setState(() => playerIndex = newWormIndex);
       _verifyFoodMatch();
     }
   }
 
   void _verifyFoodMatch() {
-    if (wormIndex == foodIndex) {
+    if (playerIndex == playerIndex) {
       setState(() {
         score += 1;
-        foodIndex = _generateRandomPosition();
+        playerIndex = generateNewIndex();
       });
     }
   }
 
-  int _generateRandomPosition() {
+  int generateNewIndex() {
     return Random().nextInt(totalItemCount - 1);
   }
 
-  Container getSquareWidget() {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: primaryColor, width: 0.5),
-        borderRadius: BorderRadius.circular(2),
-      ),
-    );
-  }
-
-  Container getWormWidget() {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: primaryColor, width: 0.5),
-        borderRadius: BorderRadius.circular(2),
-      ),
-      child: Center(
-          child: Padding(
-        padding: const EdgeInsets.all(2),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: wormColor,
-          ),
-        ),
-      )),
-    );
-  }
-
-  Container getFoodWidget() {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: primaryColor, width: 0.5),
-        borderRadius: BorderRadius.circular(2),
-      ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(3.0),
-          child: SvgPicture.asset("images/pear.svg", color: fruitkColor),
-        ),
-      ),
-    );
-  }
 }
